@@ -1073,6 +1073,7 @@ setInterval(autoSave,30000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)autoSave();});
 window.addEventListener('pagehide',autoSave);
 function savePanel(){if(mode==='title'){saveManager();return;}if(game.battle){notify('請在戰鬥結束後存取遊戲。');return;}openInfo('save');infoPanel.slot=1;}
+function confirmSaveOverwrite(slot){return localStorage.getItem('8sword-native-'+slot)===null||window.confirm('欄位 '+slot+' 已有存檔。確定要覆蓋嗎？\n覆蓋後將無法還原原本的進度。');}
 function saveLabels(){return ['儲存遊戲進度','讀取遊戲進度','音樂：'+(scoreFlow.enabled?'開':'關'),'回到起點','回到標題','進階存檔／匯出匯入'];}
 function saveControls(p){
  for(let slot=1;slot<=3;slot++)button(p,'欄位 '+slot,()=>{infoPanel.slot=slot;infoPanel.error='';infoPanel.note='';});
@@ -1088,7 +1089,7 @@ function saveKey(key){
 function saveAction(){
  const p=infoPanel,slot=p.slot||1;p.error='';p.note='';
  try{
-  if(p.index===0){localStorage.setItem('8sword-native-'+slot,game.export());p.note='已儲存到欄位 '+slot;notify(p.note);}
+  if(p.index===0){if(!confirmSaveOverwrite(slot))return;localStorage.setItem('8sword-native-'+slot,game.export());p.note='已儲存到欄位 '+slot;notify(p.note);}
   else if(p.index===1){
    const raw=localStorage.getItem('8sword-native-'+slot);if(!raw)throw Error('此欄位尚無存檔');
    const loaded=new Game(D,JSON.parse(raw));resetScenePanels();game=loaded;mode='world';notify('已載入欄位 '+slot);
@@ -1108,7 +1109,7 @@ function drawSaveScreen(){
  if(p.error||p.note)text((p.error||p.note).slice(0,22),236,181,p.error?'#ff5555':'#55ff55',9);
  $('#location').textContent='存取遊戲';$('#stats').textContent='上下選擇指令，左右切換存檔欄位，Enter 確認，Esc 返回。';
 }
-function saveManager(){if(game.battle){notify('請在戰鬥結束後存取遊戲。');return;}modal('存取遊戲',p=>{line(p,'三個本機存檔欄位；也可以匯出 JSON 備份。');for(let i=1;i<=3;i++){const row=el('div',undefined,'saveRow');row.append(el('span','欄位 '+i));button(row,'儲存',()=>{localStorage.setItem('8sword-native-'+i,game.export());notify('已儲存到欄位 '+i);});button(row,'讀取',()=>{const raw=localStorage.getItem('8sword-native-'+i);if(!raw)throw Error('此欄位尚無存檔');const loaded=new Game(D,JSON.parse(raw));resetScenePanels();game=loaded;mode='world';close();notify('已載入欄位 '+i);});p.append(row);}button(p,'匯出存檔',()=>{const url=URL.createObjectURL(new Blob([game.export()],{type:'application/json'})),a=el('a');a.href=url;a.download='8sword-save.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});const label=el('label','匯入存檔：'),input=el('input');input.type='file';input.accept='.json';input.onchange=async()=>{try{const f=input.files[0];if(!f)return;if(f.size>200000)throw Error('存檔過大');const raw=await f.text();const loaded=new Game(D,JSON.parse(raw));resetScenePanels();game=loaded;mode='world';close();notify('存檔匯入成功。');}catch(e){notify('匯入失敗：'+e.message);}};label.append(input);p.append(label);button(p,'回到起點',()=>{game.home();close();});});}
+function saveManager(){if(game.battle){notify('請在戰鬥結束後存取遊戲。');return;}modal('存取遊戲',p=>{line(p,'三個本機存檔欄位；也可以匯出 JSON 備份。');for(let i=1;i<=3;i++){const row=el('div',undefined,'saveRow');row.append(el('span','欄位 '+i));button(row,'儲存',()=>{if(!confirmSaveOverwrite(i))return;localStorage.setItem('8sword-native-'+i,game.export());notify('已儲存到欄位 '+i);});button(row,'讀取',()=>{const raw=localStorage.getItem('8sword-native-'+i);if(!raw)throw Error('此欄位尚無存檔');const loaded=new Game(D,JSON.parse(raw));resetScenePanels();game=loaded;mode='world';close();notify('已載入欄位 '+i);});p.append(row);}button(p,'匯出存檔',()=>{const url=URL.createObjectURL(new Blob([game.export()],{type:'application/json'})),a=el('a');a.href=url;a.download='8sword-save.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});const label=el('label','匯入存檔：'),input=el('input');input.type='file';input.accept='.json';input.onchange=async()=>{try{const f=input.files[0];if(!f)return;if(f.size>200000)throw Error('存檔過大');const raw=await f.text();const loaded=new Game(D,JSON.parse(raw));resetScenePanels();game=loaded;mode='world';close();notify('存檔匯入成功。');}catch(e){notify('匯入失敗：'+e.message);}};label.append(input);p.append(label);button(p,'回到起點',()=>{game.home();close();});});}
 function gallery(){modal('原版素材圖錄',p=>{line(p,`共 ${Object.keys(D.images).length} 張圖像，從原始檔案解碼。`);const select=el('select');for(const [value,label]of [['tile','地形圖塊'],['man','戰鬥角色'],['item','八件寶物圖示'],['sword','八把名劍圖示'],['hero','行走角色'],['gro','戰場'],['tit','開場素材'],['live','事件場景'],['end','結局素材（劇透）'],['x','原版動畫圖集']]){const op=el('option',label);op.value=value;select.append(op);}p.append(select);const grid=el('div',undefined,'gallery');p.append(grid);function paint(){grid.replaceChildren();for(const name of Object.keys(D.images).filter(n=>n.startsWith(select.value))){const fig=el('figure'),im=el('img');im.src=D.images[name];im.alt=name;fig.append(im,el('figcaption',name));grid.append(fig);}}select.onchange=paint;paint();});}
 // Positions and clipping follow PAE.AY; wall-clock speed and browser font are approximations.
 function endingDuelTimeline(){
