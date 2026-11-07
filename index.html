@@ -408,6 +408,7 @@ class Game{
    if(!spellTarget){b.pendingEnemySpell={actor:b.enemy.indexOf(actor),name};return 'pending';}
   }
   delete b.pendingEnemySpell;
+  const animation={type:'spellAnimation',battle:clone(b),side:'enemy',actor:b.enemy.indexOf(actor),name};this.events.push(animation);
   const kill=(a,n)=>{const lost=Math.min(count(a),n);a.hp=Math.max(0,a.hp-n*HP[a.unit]);this.message(`敵方${name}：${this.d.units[a.unit]} 損失 ${lost} 名。`);};
   this.message('敵方'+this.d.units[actor.unit]+'施展'+name+'。');
   if(name==='火球術')kill(spellTarget||choose(living),dual?2:5);
@@ -432,6 +433,9 @@ class Game{
    b.enemyCredits=b.enemyCredits.map(n=>n+1);
    this.refreshEnemyQueue();
   }else if(name==='地震術')for(const a of living){const n=count(a);kill(a,n<50?n:Math.floor(n*6/(dual?20:10))+1);}
+  animation.afterHPs={friendly:b.friendly.map(a=>a.hp),enemy:b.enemy.map(a=>a.hp)};
+  animation.targets=[];for(const side of ['friendly','enemy'])b[side].forEach((a,index)=>{if(a.hp!==animation.battle[side][index].hp)animation.targets.push({side,index});});
+  if(!animation.targets.length){const side=name==='複製術'||name==='凝滯術'?'enemy':'friendly';const index=spellTarget?b[side].indexOf(spellTarget):-1;animation.targets=index>=0?[{side,index}]:b[side].flatMap((a,index)=>a.hp>0?[{side,index}]:[]);}
   return true;
  }
  startBattle(castle=false,ambush=false){
@@ -611,7 +615,7 @@ function drawWorldScene(){const s=game.state;const shift=typeof scenePanel!=='un
  // The original frame has an opaque black center: draw it behind the world.
  image('cube',0,0,640,200);
  ctx.save();ctx.beginPath();ctx.rect(8,12,448,175);ctx.clip();
- for(let y=-3;y<=3;y++)for(let x=-3;x<=3;x++){const tx=(s.x+x+70)%70,ty=(s.y+y+80)%80,c=game.tile(tx,ty);image('tile'+c.charCodeAt(0),8+(x+3)*64,12+(y+3)*25+shift,64,25);}
+ for(let y=-3;y<=3;y++)for(let x=-3;x<=3;x++){const tx=(s.x+x+70)%70,ty=(s.y+y+80)%80,c=game.tile(tx,ty),visible=c==='k'&&s.claimed?.includes(s.world+':'+tx+':'+ty)?'1':c;image('tile'+visible.charCodeAt(0),8+(x+3)*64,12+(y+3)*25+shift,64,25);}
  image('hero'+([0,3,1,2][s.direction??2]*3+Math.floor(Date.now()/220)%3),8+3*64,12+3*25+shift,64,25);ctx.restore();
 }
 function encounterLayout(direction){
@@ -680,24 +684,25 @@ function drawBattle(){
  image('cube',0,0,640,200);ctx.save();ctx.beginPath();ctx.rect(8,12,448,175);ctx.clip();ctx.translate(8,12);ctx.scale(0.7,0.875);
  combatImage('gro'+String(bg).padStart(2,'0'),0,0,640,200);const selectorFrame=Math.floor(Date.now()/200)%4;
  for(const [side,list]of [['friendly',b.friendly],['enemy',b.enemy]])list.forEach((a,i)=>{
-  const target=event&&side!==event.side&&i===event.target,actor=event&&side===event.side&&i===event.actor;
-  const hp=target&&motion.hit?event.afterHP:a.hp;if(hp<=0)return;
+  const spell=event?.type==='spellAnimation',target=event&&(spell?event.targets.some(t=>t.side===side&&t.index===i):side!==event.side&&i===event.target),actor=event&&side===event.side&&i===event.actor;
+  const hp=target&&motion.hit?(spell?event.afterHPs[side][i]:event.afterHP):a.hp;if(hp<=0)return;
   let [x,y]=positions[a.slot];if(side==='enemy')x=640-x;
-  if(actor)x+=(side==='friendly'?1:-1)*(event.ranged?28:72)*motion.forward;
+  if(actor&&!spell)x+=(side==='friendly'?1:-1)*(event.ranged?28:72)*motion.forward;
   const focused=!event&&side==='friendly'&&i===b.active&&Date.now()<(b.focusUntil||0);
   const frame=actor?motion.frame:focused?Math.floor((Date.now()-(b.focusUntil-800))/200)%4:0,id='man'+String(a.unit+1).padStart(2,'0')+'_'+frame;
   if(!event&&!b.inspectCounts&&(((side==='enemy'?i===selected:selected===-2-i)&&!focused&&Date.now()>=(b.focusUntil||0))||focused))combatImage('choi_'+selectorFrame,x-44,y-8,88,25);
   ctx.save();if(side==='friendly'){ctx.translate(x+44,y);ctx.scale(-1,1);combatImage(id,0,-35,88,50);}else combatImage(id,x-44,y-35,88,50);ctx.restore();
   text(String(Math.ceil(hp/HP[a.unit])),x-18,y+20,'#ffffff',10);
  });
- if(event&&motion.impact){const victim=(event.side==='friendly'?b.enemy:b.friendly)[event.target];let [x,y]=positions[victim.slot];if(event.side==='friendly')x=640-x;combatImage('pon_'+Math.min(3,Math.floor((playback.elapsed-260)/45)),x-44,y-35,88,50);}
+ if(event?.type==='spellAnimation'){text(event.name,250,22,'#55ffff',12);if(motion.impact)for(const t of event.targets){const a=b[t.side][t.index];if(!a)continue;let [x,y]=positions[a.slot];if(t.side==='enemy')x=640-x;combatImage('pon_'+Math.min(3,Math.floor((playback.elapsed-260)/45)),x-44,y-35,88,50);}}
+ else if(event&&motion.impact){const victim=(event.side==='friendly'?b.enemy:b.friendly)[event.target];let [x,y]=positions[victim.slot];if(event.side==='friendly')x=640-x;combatImage('pon_'+Math.min(3,Math.floor((playback.elapsed-260)/45)),x-44,y-35,88,50);}
  ctx.restore();drawMenus();$('#location').textContent='戰場';$('#battleControls').hidden=false;
  for(const id of ['attack','rest','battleMagic'])document.getElementById(id).disabled=!!playback||!!b.inspectCounts||b.phase==='enemy';document.getElementById('flee').disabled=!!playback||!!b.inspectCounts;
- $('#stats').textContent=b.inspectCounts?'敵我兵數：白色數字為剩餘人數；按任意鍵或點擊戰場返回。':playback?'部隊前進攻擊中……':b.phase==='enemy'?'敵軍正在行動……可按 Esc 撤退。':'由前排近戰部隊攻擊敵方前排；弓箭手與鳥人可以遠攻。';
+ $('#stats').textContent=b.inspectCounts?'敵我兵數：白色數字為剩餘人數；按任意鍵或點擊戰場返回。':playback?(event.type==='spellAnimation'?'敵方正在施展'+event.name+'……':'部隊前進攻擊中……'):b.phase==='enemy'?'敵軍正在行動……可按 Esc 撤退。':'由前排近戰部隊攻擊敵方前排；弓箭手與鳥人可以遠攻。';
 }
 function begin(){if(mode!=='title'){modal('開始新遊戲',p=>{line(p,'目前進度會被新的冒險取代。已儲存的進度仍可讀取。');button(p,'開始',()=>{resetScenePanels();game=new Game(D);mode='world';close();notify('你被吸入古畫。招募軍隊，尋回八大名劍，解救雪環公主。');});});return;}mode='world';resetScenePanels();game=new Game(D);notify('你被吸入古畫。附近村莊可招募軍隊；方向鍵移動，Esc 開啟選單。');render();}
 function handleEvents(){sceneEvents.push(...game.drain());while(sceneEvents.length&&!scenePanel&&!dialog.open&&!recruitSite&&!infoPanel&&!battlePlayback){const e=sceneEvents.shift();
- if(e.type==='attackAnimation'){battlePlayback={event:e,elapsed:0,last:null};const current=battlePlayback;requestAnimationFrame(now=>animateBattle(now,current));render();}
+ if(e.type==='attackAnimation'||e.type==='spellAnimation'){battlePlayback={event:e,elapsed:0,last:null};const current=battlePlayback;requestAnimationFrame(now=>animateBattle(now,current));render();}
  else if(e.type==='message'){notify(e.text);if(/^(這裡什麼也沒有|你還沒有找齊八大名劍)/.test(e.text))showScene([[{text:e.text,color:'#ffff55'}]]);}
  else if(e.type==='itemFound'){showScene([[{text:'你找到寶物！',color:'#ffff55'}],[],[]]);scenePanel.itemIndex=e.index;scenePanel.itemName=e.name;}
  else if(e.type==='swordFound'){showScene([[{text:'取得名劍！',color:'#ffff55'}],[],[]]);scenePanel.swordIndex=e.index;scenePanel.itemName=e.name;}
@@ -1039,7 +1044,7 @@ function drawNativeMap(){
  ctx.fillStyle='#000000';ctx.fillRect(100,13,280,160);
  for(let y=0;y<80;y++)for(let x=0;x<70;x++){
   if(!p.full&&visited[y*70+x]!=='1')continue;
-  ctx.fillStyle=mapColor(game.tile(x,y));ctx.fillRect(100+x*4,13+y*2,4,2);
+  const tile=game.tile(x,y);ctx.fillStyle=mapColor(tile==='k'&&s.claimed?.includes(s.world+':'+x+':'+y)?'1':tile);ctx.fillRect(100+x*4,13+y*2,4,2);
  }
  if(Math.floor(Date.now()/350)%2===0){ctx.fillStyle='#ffffff';ctx.fillRect(100+s.x*4,13+s.y*2,4,2);}
  text(`現在位置：${s.x}，${s.y}`,148,184,'#55ff55',11);
@@ -1072,6 +1077,7 @@ function saveLabels(){return ['儲存遊戲進度','讀取遊戲進度','音樂�
 function saveControls(p){
  for(let slot=1;slot<=3;slot++)button(p,'欄位 '+slot,()=>{infoPanel.slot=slot;infoPanel.error='';infoPanel.note='';});
  button(p,'選擇 ↑',()=>saveKey('ArrowUp'));button(p,'選擇 ↓',()=>saveKey('ArrowDown'));button(p,'確定 Enter',saveAction);button(p,'返回 Esc',()=>closeInfo());
+ const autoButton=button(p,'讀取自動存檔',()=>loadAutoSave());try{autoButton.disabled=!readAutoSave();}catch(e){if(autoButton)autoButton.disabled=true;}
 }
 function saveKey(key){
  if(key==='Escape'){closeInfo();return true;}
